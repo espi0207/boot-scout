@@ -1,6 +1,15 @@
+import sys
+
+import pytest
+
 from bootscout import apply
 from bootscout import scan_linux as sl
 from bootscout.entry import AT_BOOT, AT_LOGON, SCHEDULED
+
+# Estas pruebas dependen de cosas propias de Linux (los bits de ejecución de los archivos,
+# las rutas /etc…); el código que prueban solo corre en Linux, así que fuera de Linux se
+# saltan. Las de parseo de texto, en cambio, valen en cualquier sistema.
+linux_only = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="comportamiento propio de Linux")
 
 
 def test_autostart_el_de_usuario_tapa_al_del_sistema(tmp_path):
@@ -48,6 +57,7 @@ def test_cron_del_sistema_con_usuario():
     assert entry.path == "/usr/bin/run-parts" or entry.path.endswith("run-parts") or entry.command.startswith("cd")
 
 
+@linux_only
 def test_run_parts_salta_los_que_no_tocan(tmp_path):
     (tmp_path / "ok").write_text("#!/bin/sh\n")
     (tmp_path / "ok").chmod(0o755)
@@ -76,6 +86,7 @@ def test_shell_del_sistema_es_de_sistema():
     assert entry.scope == "sistema" and entry.when == AT_LOGON
 
 
+@linux_only
 def test_desactivar_y_reactivar_un_desktop(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     path = tmp_path / "autostart" / "discord.desktop"
@@ -90,6 +101,7 @@ def test_desactivar_y_reactivar_un_desktop(tmp_path, monkeypatch):
     assert "Hidden=true" not in path.read_text() and entry.enabled is True
 
 
+@linux_only
 def test_desactivar_uno_del_sistema_crea_copia(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     from bootscout.entry import Entry
