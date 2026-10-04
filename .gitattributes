@@ -1,0 +1,3 @@
+# Binarios: que git no les toque los finales de línea en Windows.
+*.gz binary
+*.png binary

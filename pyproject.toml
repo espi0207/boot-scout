@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boot-scout"
+version = "1.0.0"
+description = "Lo que arranca con tu PC: los programas que se ponen en marcha solos al encender el ordenador, qué es cada uno y si hace falta. Windows, macOS y Linux."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "espi0207" }]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff==0.16.9"]
+
+[project.scripts]
+boot-scout = "bootscout.__main__:main"
+
+[project.gui-scripts]
+boot-scout-app = "bootscout.gui:main"
+
+[tool.setuptools]
+packages = ["bootscout"]
+
+[tool.setuptools.package-data]
+bootscout = ["icon.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

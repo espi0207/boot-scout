@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=boot-scout
+GenericName=Lo que arranca con tu PC
+Comment=Qué se pone en marcha solo al encender el ordenador, qué es y si hace falta
+Exec=boot-scout-app
+Icon=boot-scout
+Terminal=false
+Categories=System;Utility;
+Keywords=inicio;arranque;autostart;startup;servicios;tareas;
