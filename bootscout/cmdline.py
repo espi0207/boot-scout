@@ -344,12 +344,40 @@ NOISE = {
     "shopt",
     "{",
     "}",
+    # recolocar ventanas o avisar después de abrir el programa de verdad
+    "wmctrl",
+    "xdotool",
+    "notify-send",
 }
 KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "time"}
 _SEPARATORS = {";", "&&", "||", "&", "|", "|&", ";;", "\n"}
 _REDIRECTS = {">", ">>", "<", "<<", "<<<", ">&", "&>", "&>>", "<&", ">|", "<>"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh"}
 INTERPRETERS = re.compile(r"^(python[0-9.]*|perl[0-9.]*|ruby[0-9.]*|node|nodejs|php[0-9.]*|osascript|lua[0-9.]*)$")
+# Terminales: «gnome-terminal -- btop», «xterm -e htop»… lo que importa es lo de dentro.
+TERMINALS = {
+    "gnome-terminal",
+    "kgx",
+    "ptyxis",
+    "mate-terminal",
+    "xfce4-terminal",
+    "konsole",
+    "qterminal",
+    "lxterminal",
+    "terminator",
+    "tilix",
+    "xterm",
+    "uxterm",
+    "urxvt",
+    "rxvt",
+    "alacritty",
+    "kitty",
+    "foot",
+    "wezterm",
+    "sakura",
+    "x-terminal-emulator",
+}
+_TERMINAL_RUN = {"--", "-e", "-x", "--execute", "--command", "--exec"}
 
 
 def tokens(command: str) -> list[str]:
@@ -469,6 +497,18 @@ def _resolve(words: list[str], isfile, which, depth: int) -> Target:
     target = Target(program, rest, program)
     base = posixpath.basename(program)
     args = words[1:]
+    if base in TERMINALS and args and depth < 4:
+        for i, arg in enumerate(args):
+            name, eq, value = arg.partition("=")
+            if arg in _TERMINAL_RUN or (eq and name in ("--execute", "--command")):
+                rest = [value] if eq else args[i + 1 :]
+                # «-e "programa args"» va en un solo trozo; «-- programa args», en varios
+                inner = _pick(rest[0]) if len(rest) == 1 else _unwrap(rest)
+                if inner:
+                    found = _resolve(inner, isfile, which, depth + 1)
+                    target.file, target.inline = found.file, found.inline
+                return target
+        return target
     if base in SHELLS and args and depth < 4:
         i = 0
         while i < len(args):

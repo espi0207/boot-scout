@@ -121,9 +121,10 @@ class App:
             self.tree.tag_configure(f"v:{v}", foreground=c)
         scroll = ttk.Scrollbar(left, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")  # la barra primero: si falta sitio, que encoja la lista y no ella
         self.tree.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
         self.tree.bind("<<TreeviewSelect>>", lambda _: self.show_selected())
+        self.tree.bind("<Configure>", lambda _: self.fit_columns())
         panes.add(left, weight=3)
 
         right = ttk.Frame(panes)
@@ -144,8 +145,8 @@ class App:
         self.detail.tag_configure("tip", foreground="#1f2937", spacing1=4, spacing3=4)
         dscroll = ttk.Scrollbar(right, orient="vertical", command=self.detail.yview)
         self.detail.configure(yscrollcommand=dscroll.set, state="disabled")
-        self.detail.pack(side="left", fill="both", expand=True)
         dscroll.pack(side="right", fill="y")
+        self.detail.pack(side="left", fill="both", expand=True)
         panes.add(right, weight=2)
 
         bottom = ttk.Frame(root, padding=(14, 10, 14, 12))
@@ -208,6 +209,7 @@ class App:
         for e in entries:
             groups.setdefault(getattr(e, axis), []).append(e)
         keys = [k for k in order if k in groups] if order else sorted(groups, key=lambda k: -len(groups[k]))
+        names = report.list_names(self.result.entries)
         for key in keys:
             node = self.tree.insert("", "end", text=f"{key}  ({len(groups[key])})", open=True, tags=("group",))
             for entry in groups[key]:
@@ -219,15 +221,30 @@ class App:
                 if not entry.enabled:
                     tags.append("off")
                 info = self._info(entry, axis)
-                name = entry.display_name() + ("  (desactivado)" if not entry.enabled else "")
+                name = names[entry.id] + ("  (desactivado)" if not entry.enabled else "")
                 item = self.tree.insert(node, "end", text=name, values=(info,), tags=tags)
                 self.items[item] = entry
+        self.fit_columns()
         self.update_buttons()
         if remembered:
             for item, entry in self.items.items():
                 if entry.id == remembered.id:
                     self.tree.selection_set(item)
                     break
+
+    def fit_columns(self) -> None:
+        """Reparte el ancho entre las dos columnas para que no se corte nada si cabe: se mide
+        el nombre y el texto de la derecha («Hardware y controladores · al encender») más
+        largos. Si no cabe todo, manda el nombre, y la de la derecha se queda con lo que sobra."""
+        font = tkfont.nametofont("TkDefaultFont")
+        names = max((font.measure(self.tree.item(i, "text")) for i in self.items), default=0) + 48
+        infos = max((font.measure(self.tree.set(i, "info")) for i in self.items), default=0) + 24
+        room = self.tree.winfo_width() - 4
+        if room < 100:  # todavía sin dibujar
+            room = names + infos
+        info = max(min(infos, room - names), 140)
+        self.tree.column("#0", width=max(room - info, 160), stretch=True)
+        self.tree.column("info", width=info, minwidth=140, stretch=False)
 
     def _info(self, entry: Entry, axis: str) -> str:
         if axis == "verdict":

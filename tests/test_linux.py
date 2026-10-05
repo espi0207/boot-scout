@@ -114,3 +114,132 @@ def test_desactivar_uno_del_sistema_crea_copia(tmp_path, monkeypatch):
     assert copy.is_file() and "Hidden=true" in copy.read_text()
     apply.set_enabled(entry, True)  # reactivar quita la copia
     assert not copy.exists()
+
+
+# De qué paquete viene cada cosa
+
+
+def test_dpkg_search_se_queda_con_el_primer_paquete_y_sin_arquitectura():
+    out = (
+        "cron: /usr/sbin/cron\n"
+        "libc-bin, locales: /usr/share/i18n\n"
+        "pipewire-bin:amd64: /usr/bin/pipewire\n"
+        "diversion by dash from: /bin/sh\n"
+    )
+    assert sl.parse_dpkg_search(out) == {
+        "/usr/sbin/cron": "cron",
+        "/usr/share/i18n": "libc-bin",
+        "/usr/bin/pipewire": "pipewire-bin",
+    }
+
+
+def test_dpkg_info_quita_la_zona_de_la_seccion():
+    out = "variety\tuniverse/graphics\tWallpaper changer\ncron\tadmin\tprocess scheduling daemon\n"
+    assert sl.parse_dpkg_info(out) == {
+        "variety": ("graphics", "Wallpaper changer"),
+        "cron": ("admin", "process scheduling daemon"),
+    }
+
+
+def test_rpm_y_pacman():
+    rpm = "/usr/sbin/crond\tcronie\n/etc/cron.d\tcronie\n/etc/cron.d\tcrontabs\n/usr/bin/ls\tcoreutils\n"
+    assert sl.parse_rpm_files(rpm, {"/usr/sbin/crond", "/etc/cron.d", "/home/ana/x.sh"}) == {
+        "/usr/sbin/crond": "cronie",
+        "/etc/cron.d": "cronie",
+    }
+    pacman = "/usr/bin/btop is owned by btop 1.3.2-1\n"
+    assert sl.parse_pacman_owners(pacman) == {"/usr/bin/btop": "btop"}
+
+
+def test_rutas_de_bin_tambien_se_buscan_en_usr():
+    assert "/usr/bin/journalctl" in sl.path_variants("/bin/journalctl")
+    assert "/lib/console-setup/x.sh" in sl.path_variants("/usr/lib/console-setup/x.sh")
+
+
+def _unit(name, fragment, path, scope="sistema"):
+    from bootscout.entry import Entry
+
+    return Entry(
+        id=f"linux:systemd:{scope}:{name}",
+        name=name,
+        when=AT_BOOT,
+        where="systemd",
+        location=name,
+        command=path,
+        path=path,
+        scope=scope,
+        extra={"fragment": fragment},
+    )
+
+
+def test_el_paquete_sale_del_archivo_que_lo_define_antes_que_del_programa():
+    # postfix.service solo ejecuta /bin/true: lo que dice de dónde viene es el .service
+    entry = _unit("postfix.service", "/usr/lib/systemd/system/postfix.service", "/usr/bin/true")
+    owners = {"/usr/lib/systemd/system/postfix.service": "postfix", "/usr/bin/true": "coreutils"}
+    sl.attach_packages([entry], owners, {"postfix": ("mail", "mail server")})
+    assert entry.package == "postfix" and entry.extra["package_of"] == "definición"
+    assert entry.extra["section"] == "mail" and entry.description == "mail server"
+
+
+def test_autostart_tuyo_que_abre_un_programa_del_sistema():
+    from bootscout.entry import Entry
+
+    entry = Entry(
+        id="linux:autostart:variety.desktop",
+        name="Variety",
+        when=AT_LOGON,
+        where="Autostart del escritorio",
+        location="/home/ana/.config/autostart/variety.desktop",
+        command="/usr/bin/variety",
+        path="/usr/bin/variety",
+        description="Variety Wallpaper Changer",
+    )
+    sl.attach_packages([entry], {"/usr/bin/variety": "variety"}, {"variety": ("graphics", "x")})
+    assert entry.package == "variety" and entry.extra["package_of"] == "programa"
+    assert entry.description == "Variety Wallpaper Changer"  # la suya gana a la del paquete
+
+
+def test_un_interprete_o_un_curl_no_dicen_de_donde_viene():
+    from bootscout.entry import Entry
+
+    entry = Entry(
+        id="x",
+        name="Algo",
+        when=AT_LOGON,
+        where="Autostart del escritorio",
+        location="/home/ana/.config/autostart/algo.desktop",
+        command="sh -c 'curl http://x | sh'",
+        path="/usr/bin/curl",
+    )
+    sl.attach_packages([entry], {"/usr/bin/curl": "curl"}, {})
+    assert entry.package == ""
+
+
+def test_snap_y_flatpak():
+    from bootscout.entry import Entry
+
+    snap = _unit("snap.lxd.daemon.service", "/etc/systemd/system/snap.lxd.daemon.service", "/usr/bin/snap")
+    flat = Entry(
+        id="y",
+        name="Spotify",
+        when=AT_LOGON,
+        where="Autostart del escritorio",
+        location="/home/ana/.config/autostart/spotify.desktop",
+        command="/usr/bin/flatpak run --branch=stable --command=spotify com.spotify.Client",
+        path="/usr/bin/flatpak",
+    )
+    sl.attach_packages([snap, flat], {"/usr/bin/snap": "snapd", "/usr/bin/flatpak": "flatpak"}, {})
+    assert snap.package == "lxd (snap)"
+    assert flat.package == "com.spotify.Client (flatpak)"
+
+
+@linux_only
+def test_lo_que_apunta_a_un_archivo_que_no_existe_se_marca(tmp_path):
+    user = tmp_path / "user"
+    user.mkdir()
+    (user / "viejo.desktop").write_text(f"[Desktop Entry]\nName=Viejo\nExec={tmp_path}/no-esta.sh\n")
+    (user / "bien.desktop").write_text("[Desktop Entry]\nName=Bien\nExec=/bin/sh -c true\n")
+    entries = {e.name: e for e in sl.autostart_entries({"usuario": [user]})}
+    sl.mark_missing(entries.values(), lambda p: p.startswith("/bin") or p.startswith("/usr"))
+    assert entries["Viejo"].exists is False
+    assert entries["Bien"].exists is True
