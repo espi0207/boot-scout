@@ -26,11 +26,12 @@ def print_table(result: Result, axis: str, show_all: bool) -> None:
     entries = result.entries if show_all else [e for e in result.entries if e.verdict != KEEP or not e.enabled]
     hidden = len(result.entries) - len(entries)
     grouped = _group(entries, axis)
+    names = report.list_names(result.entries)
     for group, items in grouped:
         print("\n" + paint(f"{group}  ({len(items)})", "bold"))
         for entry in items:
             mark = report.VERDICT_MARK.get(entry.verdict, " ")
-            name = clean(entry.display_name())
+            name = clean(names[entry.id])
             tag = "" if entry.enabled else paint("  [desactivado]", "gray")
             new = paint("  ← nuevo", "green", "bold") if entry.is_new else ""
             extra = _secondary(entry, axis)

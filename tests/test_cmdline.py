@@ -102,3 +102,21 @@ def test_comando_vacio_no_rompe():
     assert posix("").file == ""
     assert win("").file == ""
     assert posix('sh -c "   "').file in ("", "/usr/bin/sh")
+
+
+@pytest.mark.parametrize(
+    ("command", "file"),
+    [
+        # Lo que se abre dentro de una terminal es lo que importa, no la terminal
+        (
+            "bash -c \"gnome-terminal --window --title='X' -- btop; sleep 1; wmctrl -r 'X' -e 0,1400,0,500,400\"",
+            "/usr/bin/btop",
+        ),
+        ("xterm -e htop", "/usr/bin/htop"),
+        ('xfce4-terminal -e "nohup glances -w"', "/usr/bin/glances"),
+        ("konsole --noclose -e /opt/tool/run --fast", "/opt/tool/run"),
+        ("gnome-terminal", "/usr/bin/gnome-terminal"),  # sin nada dentro, es la terminal
+    ],
+)
+def test_posix_terminales(command, file):
+    assert posix(command).file == file

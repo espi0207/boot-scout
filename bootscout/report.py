@@ -68,6 +68,22 @@ def group_by(result: Result, axis: str) -> list[tuple[str, list[Entry]]]:
     return [(k, groups[k]) for k in keys]
 
 
+def list_names(entries: list[Entry]) -> dict[str, str]:
+    """El nombre para las listas, por id. Si varias cosas se llaman igual (cuatro
+    «Impresoras»: cups, cups-browsed…), cada una lleva al lado con qué nombre está apuntada."""
+    counts: dict[str, int] = {}
+    for entry in entries:
+        counts[entry.display_name()] = counts.get(entry.display_name(), 0) + 1
+    names = {}
+    for entry in entries:
+        name = entry.display_name()
+        own = entry.name.removesuffix(".service")
+        if counts[name] > 1 and own and own.lower() != name.lower():
+            name = f"{name} ({own})"
+        names[entry.id] = name
+    return names
+
+
 def details(entry: Entry) -> list[tuple[str, str]]:
     """La ficha completa: (etiqueta, valor), solo de lo que se sabe."""
     rows: list[tuple[str, str]] = []
