@@ -119,8 +119,10 @@ def agent_entry(
     program = plist.get("Program", "")
     argv = plist.get("ProgramArguments")
     if argv and isinstance(argv, list):
-        target = _target([str(a) for a in argv])
-        command = " ".join(str(a) for a in argv)
+        # Con Program, ese es el ejecutable y argv[0] solo el nombre con el que se ve.
+        parts = [str(program), *map(str, argv[1:])] if program else [str(a) for a in argv]
+        target = _target(parts)
+        command = " ".join(parts)
     elif program:
         target = _target([str(program)])
         command = str(program)
