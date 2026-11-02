@@ -111,12 +111,13 @@ def task_entries(source: Source) -> list[Entry]:
         when, detail = task["triggers"][0] if task["triggers"] else (ON_DEMAND, "cuando algo lo pide")
         if when == ON_DEMAND and not task["triggers"]:
             continue  # sin disparador: no arranca sola
-        for command, args in task["actions"]:
+        for number, (command, args) in enumerate(task["actions"]):
             full = f'"{command}" {args}'.strip()
             target = cmdline.windows_target(full, source.env, source.is_file, [r"C:\Windows\System32", r"C:\Windows"])
             is_ms = name.lower().startswith("microsoft\\")
             entry = Entry(
-                id=f"win:task:{name}",
+                # Cada acción con su id: si no, al quitar repetidos solo quedaba la primera.
+                id=f"win:task:{name}" + (f"#{number + 1}" if number else ""),
                 name=ntpath.basename(name) or name,
                 when=when,
                 where="Tarea programada",

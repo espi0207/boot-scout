@@ -249,3 +249,22 @@ def test_system_services_are_shown_but_not_toggled():
     out = "ssh.service enabled enabled\n"
     (entry,) = sl.systemd_entries("sistema", out, out)
     assert entry.toggle == {}
+
+
+def test_timer_shows_what_its_service_runs(monkeypatch):
+    from bootscout.entry import Entry
+
+    shows = {
+        "backup.timer": "Description=Copia diaria\nExecStart=\nFragmentPath=/etc/systemd/system/backup.timer\n"
+        "Triggers=backup.service\n",
+        "backup.service": "ExecStart={ path=/usr/local/bin/backup ; argv[]=/usr/local/bin/backup --full ; }\n",
+    }
+    monkeypatch.setattr(
+        sl, "_run", lambda cmd: shows.get(next(c for c in cmd if c.endswith((".timer", ".service"))), "")
+    )
+    entry = Entry(
+        id="linux:systemd:sistema:backup.timer", name="backup.timer", when="", where="", location="backup.timer"
+    )
+    sl.describe_units([entry], user=False)
+    assert entry.description == "Copia diaria"
+    assert entry.path == "/usr/local/bin/backup" and "--full" in entry.command
