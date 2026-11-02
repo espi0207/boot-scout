@@ -171,3 +171,18 @@ def test_set_enabled_refuses_system_scope_even_if_asked():
     ):
         with pytest.raises(CantDo):
             set_enabled(Entry(id="x", name="X", when="", where="", toggle=toggle), False)
+
+
+def test_every_action_of_a_task_is_kept():
+    from bootscout.scan import classify
+
+    xml = TASK_XML.format(trigger="<LogonTrigger/>", enabled="true").replace(
+        "</Exec></Actions>", "</Exec><Exec><Command>C:\\Vendor\\otro.exe</Command></Exec></Actions>"
+    )
+    f = {
+        r"c:\windows\system32\tasks\dos".lower(): xml.encode("utf-16"),
+        r"c:\vendor\upd.exe".lower(): b"x",
+        r"c:\vendor\otro.exe".lower(): b"x",
+    }
+    entries = classify(wt.task_entries(Source(files=f, env=ENV)))
+    assert sorted(e.path for e in entries) == [r"C:\Vendor\otro.exe", r"C:\Vendor\upd.exe"]

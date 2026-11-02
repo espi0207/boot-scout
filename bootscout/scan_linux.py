@@ -147,13 +147,18 @@ def describe_units(entries: list[Entry], user: bool) -> None:
             "show",
             entry.location,
             "--no-pager",
-            "--property=Description,ExecStart,FragmentPath,Names",
+            "--property=Description,ExecStart,FragmentPath,Names,Triggers",
         ]
         if user:
             base.insert(1, "--user")
         info = _show(_run(base))
         entry.description = info.get("Description", "")
         exec_start = info.get("ExecStart", "")
+        if not exec_start and entry.location.endswith(".timer") and (service := info.get("Triggers", "").split()):
+            # Un temporizador no ejecuta nada: lanza un servicio, y lo que importa es qué hace ese.
+            again = [c if c != entry.location else service[0] for c in base]
+            again[again.index("--property=Description,ExecStart,FragmentPath,Names,Triggers")] = "--property=ExecStart"
+            exec_start = _show(_run(again)).get("ExecStart", "")
         m = re.search(r"argv\[\]=([^;]+)", exec_start) or re.search(r"path=(\S+)", exec_start)
         if m:
             entry.command = m.group(1).strip()
