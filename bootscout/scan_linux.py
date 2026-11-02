@@ -10,7 +10,8 @@
   `@reboot` (al arrancar), y las carpetas `/etc/cron.{hourly,daily,weekly,monthly}`.
 - **Lo antiguo**: `/etc/rc.local` (órdenes al final del arranque).
 
-Lee archivos y pregunta a `systemctl`; no arranca ni para nada.
+Lee archivos y pregunta a `systemctl`, y al gestor de paquetes (dpkg, rpm o pacman) de qué
+paquete viene cada cosa; no arranca ni para nada.
 """
 
 from __future__ import annotations
@@ -25,9 +26,9 @@ from . import cmdline
 from .entry import AT_BOOT, AT_LOGON, INSIDE, SCHEDULED, Entry
 
 
-def _run(args: list[str]) -> str:
+def _run(args: list[str], timeout: int = 10) -> str:
     try:
-        return subprocess.run(args, capture_output=True, text=True, timeout=10).stdout
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
 
@@ -114,7 +115,11 @@ def systemd_entries(scope: str, list_output: str, enabled_output: str) -> list[E
                 location=unit,
                 enabled=True,
                 scope=scope,
-                toggle={"kind": "systemd", "unit": unit, "user": scope == "usuario"},
+                # Solo lo de tu usuario: lo del sistema se explica, pero no se toca desde aquí.
+                toggle={"kind": "systemd", "unit": unit, "user": True} if scope == "usuario" else {},
+                hint=""
+                if scope == "usuario"
+                else f"Es del sistema. Para que no arranque: sudo systemctl disable --now {unit}",
             )
         )
     return entries
@@ -142,13 +147,18 @@ def describe_units(entries: list[Entry], user: bool) -> None:
             "show",
             entry.location,
             "--no-pager",
-            "--property=Description,ExecStart,FragmentPath,Names",
+            "--property=Description,ExecStart,FragmentPath,Names,Triggers",
         ]
         if user:
             base.insert(1, "--user")
         info = _show(_run(base))
         entry.description = info.get("Description", "")
         exec_start = info.get("ExecStart", "")
+        if not exec_start and entry.location.endswith(".timer") and (service := info.get("Triggers", "").split()):
+            # Un temporizador no ejecuta nada: lanza un servicio, y lo que importa es qué hace ese.
+            again = [c if c != entry.location else service[0] for c in base]
+            again[again.index("--property=Description,ExecStart,FragmentPath,Names,Triggers")] = "--property=ExecStart"
+            exec_start = _show(_run(again)).get("ExecStart", "")
         m = re.search(r"argv\[\]=([^;]+)", exec_start) or re.search(r"path=(\S+)", exec_start)
         if m:
             entry.command = m.group(1).strip()
@@ -381,6 +391,178 @@ def _read(path: Path) -> str:
         return ""
 
 
+def mark_missing(entries, exists=os.path.exists) -> None:
+    """Apunta si el archivo que se abre existe. Si no está, lo que arranca no hace nada:
+    seguramente se desinstaló y se quedó apuntado."""
+    for entry in entries:
+        path = entry.path
+        if not path or entry.inline or " -m " in path or "$" in path:
+            continue
+        path = os.path.expanduser(path)
+        if path.startswith("/"):  # sin ruta, puede estar en un PATH propio (el de un crontab)
+            entry.exists = exists(path)
+
+
+# De qué paquete viene cada cosa. Lo que viene en un paquete de la distribución lo ha
+# instalado el sistema (o tú, con el gestor de paquetes); lo que no, lo ha dejado alguien a mano.
+
+# Que algo abra uno de estos no dice nada de quién lo puso ahí: un «sh -c "curl … | sh"»
+# no es «del paquete curl».
+_GENERIC = re.compile(
+    r"^(sh|bash|dash|zsh|ksh|fish|csh|tcsh|busybox|env|python[0-9.]*|perl[0-9.]*|ruby[0-9.]*|node(js)?|"
+    r"php[0-9.]*|lua[0-9.]*|java|curl|wget|nc|ncat|netcat|socat|ssh|xdg-open|gio|true|false|sleep|"
+    r"systemctl|flatpak|snap|run-parts)$"
+)
+# Sitios cuyo archivo es de una sola cosa: si el archivo es de un paquete, lo que arranca
+# también. (/etc/crontab, rc.local o el .profile, en cambio, los edita cualquiera a mano.)
+_OWN_FILE = ("linux:systemd:", "linux:autostart:", "linux:runparts:", "linux:cron:/etc/cron.d/")
+
+
+def path_variants(path: str) -> list[str]:
+    """Con «/usr merge», /bin es /usr/bin (y /lib, /usr/lib): el paquete puede tenerlo
+    apuntado de cualquiera de las dos formas."""
+    out = [path]
+    for short in ("/bin/", "/sbin/", "/lib/", "/lib32/", "/lib64/", "/libx32/"):
+        if path.startswith(short):
+            out.append("/usr" + path)
+        elif path.startswith("/usr" + short):
+            out.append(path[4:])
+    return out
+
+
+def owner_candidates(entry: Entry) -> list[tuple[str, str]]:
+    """Dónde mirar de qué paquete viene: primero el archivo que lo define (el .service, el
+    .desktop…), luego el programa que abre. Con quién responde: «definición» o «programa»."""
+    out = []
+    definition = ""
+    if entry.id.startswith(_OWN_FILE):
+        definition = entry.extra.get("fragment") or (entry.location if entry.location.startswith("/") else "")
+    if definition:
+        out.append((definition, "definición"))
+    path = entry.path
+    if path.startswith("/") and path != definition and not entry.inline and not _GENERIC.match(Path(path).name):
+        out.append((path, "programa"))
+    return out
+
+
+def _store_package(entry: Entry) -> tuple[str, str]:
+    """Los snap y los flatpak no son de dpkg ni de rpm: se ven en el nombre o en la orden."""
+    if entry.id.startswith("linux:systemd:"):
+        m = re.match(r"snap\.([a-z0-9-]+)\.", entry.name)
+        if m:
+            return f"{m.group(1)} (snap)", "definición"
+    m = re.match(r"/snap/(?:bin/)?([a-z0-9-]+)", entry.path)
+    if m and m.group(1) != "bin":
+        return f"{m.group(1)} (snap)", "programa"
+    m = re.search(r"/flatpak/exports/bin/([\w.-]+)", entry.path)
+    if m:
+        return f"{m.group(1)} (flatpak)", "programa"
+    words = cmdline.tokens(entry.command)
+    if "run" in words and any(Path(w).name == "flatpak" for w in words[: words.index("run")]):
+        app = next((w for w in words[words.index("run") + 1 :] if not w.startswith("-")), "")
+        if app.count(".") >= 2:
+            return f"{app} (flatpak)", "programa"
+    return "", ""
+
+
+def parse_dpkg_search(output: str) -> dict[str, str]:
+    """`dpkg-query -S ruta…`: «paquete[:arquitectura][, otro]: ruta» → {ruta: paquete}."""
+    owners = {}
+    for line in output.splitlines():
+        if line.startswith(("diversion by", "local diversion")):
+            continue
+        packages, sep, path = line.partition(": ")
+        if sep and path.startswith("/"):
+            owners.setdefault(path.strip(), packages.split(",")[0].split(":")[0].strip())
+    return owners
+
+
+def parse_dpkg_info(output: str) -> dict[str, tuple[str, str]]:
+    """`dpkg-query -W -f '${Package}\\t${Section}\\t${binary:Summary}\\n'` → {paquete: (sección, resumen)}.
+    La sección sin la zona del repositorio («universe/graphics» → «graphics»)."""
+    info = {}
+    for line in output.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 3 and parts[0]:
+            info[parts[0]] = (parts[1].rsplit("/", 1)[-1], parts[2].strip())
+    return info
+
+
+def parse_rpm_files(output: str, wanted: set[str]) -> dict[str, str]:
+    """`rpm -qa --qf '[%{FILENAMES}\\t%{NAME}\\n]'` (todos los archivos de todos los paquetes)
+    → {ruta: paquete}, solo de las rutas que interesan. Si es de varios, el primero."""
+    owners = {}
+    for line in output.splitlines():
+        path, sep, package = line.partition("\t")
+        if sep and path in wanted:
+            owners.setdefault(path, package.strip())
+    return owners
+
+
+def parse_pacman_owners(output: str) -> dict[str, str]:
+    """`pacman -Qo ruta…`: «/ruta is owned by paquete 1.2-3» → {ruta: paquete}."""
+    owners = {}
+    for line in output.splitlines():
+        m = re.match(r"(/.*) is owned by (\S+) ", line)
+        if m:
+            owners[m.group(1)] = m.group(2)
+    return owners
+
+
+def attach_packages(entries, owners: dict[str, str], info: dict[str, tuple[str, str]]) -> None:
+    """Rellena el paquete de cada entrada con lo que han contestado dpkg, rpm o pacman
+    (`owners`: {ruta: paquete}; `info`: {paquete: (sección, resumen)})."""
+    for entry in entries:
+        package, origin = _store_package(entry)
+        if not package:
+            for path, where in owner_candidates(entry):
+                package = next((owners[p] for p in path_variants(path) if p in owners), "")
+                if package:
+                    origin = where
+                    break
+        if not package:
+            continue
+        entry.package = package
+        entry.extra["package_of"] = origin
+        section, summary = info.get(package, ("", ""))
+        if section:
+            entry.extra["section"] = section
+        if summary and not entry.description:
+            entry.description = summary
+
+
+def find_packages(entries) -> None:  # pragma: no cover - pregunta al sistema de verdad
+    paths: set[str] = set()
+    real: dict[str, str] = {}
+    for entry in entries:
+        for path, _where in owner_candidates(entry):
+            paths.update(path_variants(path))
+            resolved = os.path.realpath(path)
+            if resolved != path:  # un enlace (/usr/bin/x-terminal-emulator…): el paquete es el del destino
+                real[path] = resolved
+                paths.update(path_variants(resolved))
+    wanted = sorted(p for p in paths if os.path.exists(p))
+    if not wanted:
+        return
+    owners: dict[str, str] = {}
+    info: dict[str, tuple[str, str]] = {}
+    if _which("dpkg-query"):
+        owners = parse_dpkg_search(_run(["dpkg-query", "-S", *wanted], timeout=60))
+        if owners:
+            fmt = "-f=${Package}\t${Section}\t${binary:Summary}\n"
+            info = parse_dpkg_info(_run(["dpkg-query", "-W", fmt, *sorted(set(owners.values()))], timeout=30))
+    elif _which("rpm"):
+        owners = parse_rpm_files(_run(["rpm", "-qa", "--qf", "[%{FILENAMES}\t%{NAME}\n]"], timeout=60), set(wanted))
+    elif _which("pacman"):
+        owners = parse_pacman_owners(_run(["pacman", "-Qo", *wanted], timeout=60))
+    for path, resolved in real.items():
+        if not any(p in owners for p in path_variants(path)):
+            owner = next((owners[p] for p in path_variants(resolved) if p in owners), "")
+            if owner:
+                owners[path] = owner
+    attach_packages(entries, owners, info)
+
+
 def scan() -> list[Entry]:  # pragma: no cover - usa el sistema de verdad
     home = Path.home()
     config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
@@ -425,4 +607,7 @@ def scan() -> list[Entry]:  # pragma: no cover - usa el sistema de verdad
     for path in sorted(Path("/etc/profile.d").glob("*.sh")) if Path("/etc/profile.d").is_dir() else []:
         shell[str(path)] = _read(path)
     entries += shell_entries(shell)
+
+    mark_missing(entries)
+    find_packages(entries)
     return entries

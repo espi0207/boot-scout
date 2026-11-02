@@ -84,3 +84,10 @@ def test_elementos_de_inicio_de_sesion():
     entries = sm.parse_login_items(btm)
     assert [e.name for e in entries] == ["Rewind", "Docker"]  # el repetido, una vez
     assert entries[0].when == AT_LOGON
+
+
+def test_program_key_is_the_real_executable():
+    # Con Program y ProgramArguments, launchd ejecuta Program; argv[0] es solo el nombre que ve.
+    plist = {"Label": "com.x.agent", "Program": "/opt/actual", "ProgramArguments": ["innocent", "--flag"]}
+    entry = sm.agent_entry(plist, "/Library/LaunchAgents/com.x.agent.plist", "Al iniciar sesión", "", "sistema")
+    assert entry.path == "/opt/actual" and "--flag" in entry.command and "innocent" not in entry.command

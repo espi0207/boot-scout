@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "boot-scout"
-version = "1.0.0"
+version = "1.0.1"
 description = "Lo que arranca con tu PC: los programas que se ponen en marcha solos al encender el ordenador, qué es cada uno y si hace falta. Windows, macOS y Linux."
 readme = "README.md"
 license = { text = "MIT" }

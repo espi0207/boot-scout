@@ -39,6 +39,9 @@ def set_enabled(entry: Entry, enabled: bool) -> str:
     if not toggle:
         raise CantDo(entry.hint or "Esto hay que cambiarlo a mano; mira «Cómo tocarlo».")
     kind = toggle.get("kind")
+    # Aunque alguien lo pida (o el archivo de historial esté tocado), nada del sistema.
+    if (kind == "systemd" and not toggle.get("user", True)) or (kind == "run" and toggle.get("hive") != "HKCU"):
+        raise CantDo("Esto es del sistema y boot-scout solo cambia lo de tu usuario; mira «Cómo tocarlo».")
     if kind == "desktop":
         _desktop(Path(toggle["file"]), enabled)
     elif kind == "systemd":

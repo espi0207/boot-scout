@@ -150,3 +150,73 @@ def test_archivo_que_no_existe():
     reg = {r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run": RegKey(values={"X": r"C:\gone.exe"})}
     (entry,) = sw.run_key_entries(Source(registry=reg, files={}, env=ENV))
     assert entry.exists is False
+
+
+def test_machine_wide_run_keys_are_not_toggled_from_here():
+    # boot-scout solo cambia lo de tu usuario: lo de todo el equipo (HKLM) se explica, no se toca.
+    reg = {r"HKLM\Software\Microsoft\Windows\CurrentVersion\Run": RegKey(values={"X": r"C:\x.exe"})}
+    (entry,) = sw.run_key_entries(Source(registry=reg, files=files(r"C:\x.exe"), env=ENV))
+    assert entry.toggle == {}
+
+
+def test_set_enabled_refuses_system_scope_even_if_asked():
+    import pytest
+
+    from bootscout.apply import CantDo, set_enabled
+    from bootscout.entry import Entry
+
+    for toggle in (
+        {"kind": "run", "hive": "HKLM", "key": r"HKLM\x", "name": "X"},
+        {"kind": "systemd", "unit": "ssh.service", "user": False},
+    ):
+        with pytest.raises(CantDo):
+            set_enabled(Entry(id="x", name="X", when="", where="", toggle=toggle), False)
+
+
+def test_every_action_of_a_task_is_kept():
+    from bootscout.scan import classify
+
+    xml = TASK_XML.format(trigger="<LogonTrigger/>", enabled="true").replace(
+        "</Exec></Actions>", "</Exec><Exec><Command>C:\\Vendor\\otro.exe</Command></Exec></Actions>"
+    )
+    f = {
+        r"c:\windows\system32\tasks\dos".lower(): xml.encode("utf-16"),
+        r"c:\vendor\upd.exe".lower(): b"x",
+        r"c:\vendor\otro.exe".lower(): b"x",
+    }
+    entries = classify(wt.task_entries(Source(files=f, env=ENV)))
+    assert sorted(e.path for e in entries) == [r"C:\Vendor\otro.exe", r"C:\Vendor\upd.exe"]
+
+
+def test_winlogon_explorer_in_another_folder_is_flagged():
+    # Se llama explorer.exe, pero no es el de Windows.
+    reg = {
+        r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon": RegKey(
+            values={"Shell": r"C:\Users\Ana\explorer.exe", "Userinit": r"C:\Windows\system32\userinit.exe,"}
+        )
+    }
+    (entry,) = sw.special_entries(Source(registry=reg, files=files(r"C:\Users\Ana\explorer.exe"), env=ENV))
+    assert entry.path == r"C:\Users\Ana\explorer.exe"
+
+
+def test_winlogon_normal_forms_are_not_flagged():
+    reg = {
+        r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon": RegKey(
+            values={"Shell": r"%SystemRoot%\explorer.exe", "Userinit": "userinit.exe"}
+        )
+    }
+    assert sw.special_entries(Source(registry=reg, files={}, env=ENV)) == []
+
+
+def test_a_known_name_in_a_hijacked_place_is_still_flagged():
+    from bootscout.judge import CHECK, judge
+
+    reg = {
+        r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options": RegKey(
+            subkeys={"sethc.exe": RegKey(values={"Debugger": r"C:\Users\Ana\AppData\Roaming\Spotify\Spotify.exe"})}
+        )
+    }
+    path = r"C:\Users\Ana\AppData\Roaming\Spotify\Spotify.exe"
+    (entry,) = sw.special_entries(Source(registry=reg, files=files(path), env=ENV))
+    judged = judge(entry)
+    assert judged.verdict == CHECK and any("sethc" in r for r in judged.reasons)

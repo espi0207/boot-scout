@@ -106,8 +106,10 @@ arrancar solo, y el malware se esconde justo en los menos conocidos.
 
 De cada cosa, boot-scout averigua qué archivo se ejecuta **de verdad** (si es un
 `rundll32`, la DLL que carga; si es un `powershell -EncodedCommand`, descodifica el código
-para enseñártelo; si es un acceso directo, a qué apunta), si ese archivo **existe**, su
-**versión y fabricante**, y su **firma digital**.
+para enseñártelo; si es un acceso directo, a qué apunta; si se abre en una terminal, el
+programa de dentro), si ese archivo **existe**, su **versión y fabricante**, y su **firma
+digital**. En Linux, en vez de la firma, mira **de qué paquete viene** (preguntando a dpkg,
+rpm o pacman, y reconociendo las apps snap y flatpak).
 
 ## Cómo lo clasifica
 
@@ -127,8 +129,11 @@ Cada cosa sale ordenada en tres ejes:
     algo sin firma en una carpeta temporal, un rincón del sistema con algo raro).
   - **Roto**: apunta a un archivo que ya no existe; no hace nada y puedes quitarlo.
 
-boot-scout conoce ~125 programas comunes y, para el resto, decide por la firma, la ruta y
-lo que el archivo dice de sí mismo. Y marca lo que no cuadra: una firma no válida, algo
+boot-scout conoce ~180 programas y servicios comunes y, para el resto, decide por la firma,
+la ruta y lo que el archivo dice de sí mismo. En Linux, por el paquete: si lo pone a arrancar
+un paquete del sistema, déjalo; si es un programa instalado que tú (o él mismo) has puesto a
+arrancar, como quieras. Y la sección del paquete (red, sonido, juegos, programación…) dice
+qué es. Y marca lo que no cuadra: una firma no válida, algo
 metido en una carpeta temporal, o un sitio del sistema (Winlogon, IFEO) con algo que no
 debería estar.
 
@@ -184,8 +189,9 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Casi noventa pruebas: los formatos de cada sistema (registro, StartupApproved, XML de
-tareas en UTF-16 y UTF-8, `.lnk`, `.plist`, crontabs, `.desktop`), los casos raros y rotos,
+Más de cien pruebas: los formatos de cada sistema (registro, StartupApproved, XML de
+tareas en UTF-16 y UTF-8, `.lnk`, `.plist`, crontabs, `.desktop`, lo que contestan dpkg, rpm
+y pacman), los casos raros y rotos,
 la clasificación, el historial, desactivar y deshacer de verdad (con archivos reales en
 Linux), la terminal y la ventana.
 
