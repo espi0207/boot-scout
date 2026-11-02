@@ -243,3 +243,9 @@ def test_lo_que_apunta_a_un_archivo_que_no_existe_se_marca(tmp_path):
     sl.mark_missing(entries.values(), lambda p: p.startswith("/bin") or p.startswith("/usr"))
     assert entries["Viejo"].exists is False
     assert entries["Bien"].exists is True
+
+
+def test_system_services_are_shown_but_not_toggled():
+    out = "ssh.service enabled enabled\n"
+    (entry,) = sl.systemd_entries("sistema", out, out)
+    assert entry.toggle == {}

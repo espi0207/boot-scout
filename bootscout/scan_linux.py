@@ -115,7 +115,11 @@ def systemd_entries(scope: str, list_output: str, enabled_output: str) -> list[E
                 location=unit,
                 enabled=True,
                 scope=scope,
-                toggle={"kind": "systemd", "unit": unit, "user": scope == "usuario"},
+                # Solo lo de tu usuario: lo del sistema se explica, pero no se toca desde aquí.
+                toggle={"kind": "systemd", "unit": unit, "user": True} if scope == "usuario" else {},
+                hint=""
+                if scope == "usuario"
+                else f"Es del sistema. Para que no arranque: sudo systemctl disable --now {unit}",
             )
         )
     return entries

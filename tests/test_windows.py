@@ -150,3 +150,24 @@ def test_archivo_que_no_existe():
     reg = {r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run": RegKey(values={"X": r"C:\gone.exe"})}
     (entry,) = sw.run_key_entries(Source(registry=reg, files={}, env=ENV))
     assert entry.exists is False
+
+
+def test_machine_wide_run_keys_are_not_toggled_from_here():
+    # boot-scout solo cambia lo de tu usuario: lo de todo el equipo (HKLM) se explica, no se toca.
+    reg = {r"HKLM\Software\Microsoft\Windows\CurrentVersion\Run": RegKey(values={"X": r"C:\x.exe"})}
+    (entry,) = sw.run_key_entries(Source(registry=reg, files=files(r"C:\x.exe"), env=ENV))
+    assert entry.toggle == {}
+
+
+def test_set_enabled_refuses_system_scope_even_if_asked():
+    import pytest
+
+    from bootscout.apply import CantDo, set_enabled
+    from bootscout.entry import Entry
+
+    for toggle in (
+        {"kind": "run", "hive": "HKLM", "key": r"HKLM\x", "name": "X"},
+        {"kind": "systemd", "unit": "ssh.service", "user": False},
+    ):
+        with pytest.raises(CantDo):
+            set_enabled(Entry(id="x", name="X", when="", where="", toggle=toggle), False)
