@@ -109,7 +109,13 @@ def run_key_entries(source: Source) -> list[Entry]:
                 scope=scope,
                 enabled=not _approved_disabled(approved.get(name.lower())),
                 trigger="solo la próxima vez que enciendas" if once else "",
-                toggle={"kind": "run", "hive": hive, "key": approved_path, "name": name} if not once else {},
+                # Solo lo de tu usuario (HKCU): lo de todo el equipo se explica, pero no se toca.
+                toggle={"kind": "run", "hive": hive, "key": approved_path, "name": name}
+                if not once and hive == "HKCU"
+                else {},
+                hint=""
+                if hive == "HKCU" or once
+                else "Es de todo el equipo: desactívalo en el Administrador de tareas > Inicio (pide administrador).",
             )
             _file_facts(entry, source)
             entries.append(entry)
