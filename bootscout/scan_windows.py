@@ -186,17 +186,21 @@ ACTIVE_SETUP = r"HKLM\Software\Microsoft\Active Setup\Installed Components"
 def special_entries(source: Source) -> list[Entry]:
     entries = []
     # Winlogon: Shell (normal: explorer.exe) y Userinit (normal: userinit.exe).
-    for value_name, normal, label in (
-        ("Shell", "explorer.exe", "el shell de Windows"),
-        ("Userinit", "userinit.exe", "el arranque de la sesión"),
+    for value_name, normal, home, label in (
+        ("Shell", "explorer.exe", r"%SystemRoot%", "el shell de Windows"),
+        ("Userinit", "userinit.exe", r"%SystemRoot%\System32", "el arranque de la sesión"),
     ):
+        canonical = cmdline.expand(rf"{home}\{normal}", source.env).lower()
         data = source.value(WINLOGON, value_name)
         if not data:
             continue
         for command in [c for c in str(data).split(",") if c.strip()]:
-            base = ntpath.basename(cmdline.expand(command.strip(), source.env)).lower()
-            if base in (normal, normal.replace(".exe", "")):
-                continue  # es lo de siempre
+            expanded = cmdline.expand(command.strip().strip('"'), source.env).lower()
+            base = ntpath.basename(expanded)
+            # Lo de siempre: el nombre solo (Windows lo busca en su carpeta) o la ruta de Windows.
+            # Un explorer.exe en otra carpeta no lo es, aunque se llame igual.
+            if expanded in (normal, normal.replace(".exe", ""), canonical):
+                continue
             target = _resolve(command.strip(), source)
             entry = Entry(
                 id=f"win:winlogon:{value_name}:{base}",
