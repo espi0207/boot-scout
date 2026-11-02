@@ -186,3 +186,37 @@ def test_every_action_of_a_task_is_kept():
     }
     entries = classify(wt.task_entries(Source(files=f, env=ENV)))
     assert sorted(e.path for e in entries) == [r"C:\Vendor\otro.exe", r"C:\Vendor\upd.exe"]
+
+
+def test_winlogon_explorer_in_another_folder_is_flagged():
+    # Se llama explorer.exe, pero no es el de Windows.
+    reg = {
+        r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon": RegKey(
+            values={"Shell": r"C:\Users\Ana\explorer.exe", "Userinit": r"C:\Windows\system32\userinit.exe,"}
+        )
+    }
+    (entry,) = sw.special_entries(Source(registry=reg, files=files(r"C:\Users\Ana\explorer.exe"), env=ENV))
+    assert entry.path == r"C:\Users\Ana\explorer.exe"
+
+
+def test_winlogon_normal_forms_are_not_flagged():
+    reg = {
+        r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon": RegKey(
+            values={"Shell": r"%SystemRoot%\explorer.exe", "Userinit": "userinit.exe"}
+        )
+    }
+    assert sw.special_entries(Source(registry=reg, files={}, env=ENV)) == []
+
+
+def test_a_known_name_in_a_hijacked_place_is_still_flagged():
+    from bootscout.judge import CHECK, judge
+
+    reg = {
+        r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options": RegKey(
+            subkeys={"sethc.exe": RegKey(values={"Debugger": r"C:\Users\Ana\AppData\Roaming\Spotify\Spotify.exe"})}
+        )
+    }
+    path = r"C:\Users\Ana\AppData\Roaming\Spotify\Spotify.exe"
+    (entry,) = sw.special_entries(Source(registry=reg, files=files(path), env=ENV))
+    judged = judge(entry)
+    assert judged.verdict == CHECK and any("sethc" in r for r in judged.reasons)

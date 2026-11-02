@@ -110,6 +110,10 @@ def judge(entry: Entry) -> Entry:
         reasons.append(f"Es {found.name}.")
         if entry.package:
             reasons.append(_comes_from(entry))
+        if entry.extra.get("unusual"):
+            # Un nombre conocido no tapa que esté enganchado donde no toca (IFEO, Winlogon…).
+            entry.verdict = CHECK
+            reasons.append(entry.extra["unusual"])
     elif entry.extra.get("unusual"):
         # Un ajuste del sistema que no tiene su valor de siempre (lo decide quien lo encuentra).
         entry.verdict, entry.kind = CHECK, KIND_SYSTEM
