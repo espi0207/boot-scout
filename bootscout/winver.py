@@ -7,6 +7,8 @@ vacío si no está en Windows o si falla.
 
 from __future__ import annotations
 
+import functools
+import os
 import subprocess
 import sys
 
@@ -63,23 +65,33 @@ def version_info(path: str) -> dict:  # pragma: no cover - solo Windows
         return {}
 
 
+def signature_command(path: str) -> tuple[list[str], dict[str, str]]:
+    """La orden y su entorno. La ruta va en una variable de entorno, como dato: si fuera
+    dentro del texto del script, un archivo llamado «x'; <orden>; #.exe» (el nombre lo
+    elige quien lo crea, que puede ser un malware) ejecutaría esa orden al revisarlo."""
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        "$s=Get-AuthenticodeSignature -LiteralPath $env:BOOTSCOUT_PATH;"
+        "if($s){$n='';if($s.SignerCertificate){$n=$s.SignerCertificate.GetNameInfo(0,$false)};"
+        "Write-Output ($s.Status.ToString()+'|'+$n)}"
+    )
+    return ["powershell", "-NoProfile", "-NonInteractive", "-Command", script], {**os.environ, "BOOTSCOUT_PATH": path}
+
+
+@functools.lru_cache(maxsize=1024)  # el mismo ejecutable sale a veces en varios sitios: una vez basta
 def signature(path: str) -> tuple[str, str]:  # pragma: no cover - solo Windows
     """(estado, firmante). estado: «válida», «no válida», «sin firma» o «» si no se ha
     podido mirar. Usa PowerShell (Get-AuthenticodeSignature), que no necesita permisos."""
     if sys.platform != "win32":
         return "", ""
-    script = (
-        "$ErrorActionPreference='SilentlyContinue';"
-        f"$s=Get-AuthenticodeSignature -LiteralPath '{path}';"
-        "if($s){$n='';if($s.SignerCertificate){$n=$s.SignerCertificate.GetNameInfo(0,$false)};"
-        "Write-Output ($s.Status.ToString()+'|'+$n)}"
-    )
+    args, env = signature_command(path)
     try:
         out = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            args,
             capture_output=True,
             text=True,
             timeout=20,
+            env=env,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
