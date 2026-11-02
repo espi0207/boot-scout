@@ -87,3 +87,21 @@ def test_desactivar_y_deshacer_de_verdad(tmp_path, monkeypatch, capsys):
     assert "Hidden=true" in desktop.read_text()
     assert cli.main(["--deshacer"]) == 0
     assert "Hidden=true" not in desktop.read_text()
+
+
+def test_ambiguous_name_is_not_toggled_at_random(tmp_path, monkeypatch, capsys):
+    # Dos «Updater» tuyos distintos: no se apaga el primero que salga, se pide cuál.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    autostart = tmp_path / "config" / "autostart"
+    autostart.mkdir(parents=True)
+    for name in ("a", "b"):
+        (autostart / f"{name}.desktop").write_text(f"[Desktop Entry]\nName=Updater\nExec=/usr/bin/{name}-updater\n")
+
+    from bootscout import scan_linux
+
+    monkeypatch.setattr(cli.scan, "_raw_scan", lambda system: scan_linux.autostart_entries({"usuario": [autostart]}))
+    monkeypatch.setattr(cli.scan, "current_system", lambda: "Linux")
+    assert cli.main(["--desactivar", "Updater"]) == 1
+    err = capsys.readouterr().err
+    assert "varios" in err and "linux:" in err  # enseña los ids para elegir
+    assert all("Hidden" not in p.read_text() for p in autostart.iterdir())

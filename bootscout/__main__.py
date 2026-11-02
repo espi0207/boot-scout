@@ -151,21 +151,31 @@ def _filter(result: Result, args) -> Result:
     return filtered
 
 
-def _find(result: Result, who: str):
+def _matches(result: Result, who: str) -> list:
+    """Las entradas que encajan con lo que se ha escrito: el id exacto, el nombre exacto o,
+    si no hay ninguno, parte del nombre. Si encajan varias y solo una se puede cambiar
+    desde aquí, esa (lo normal: la tuya frente a la del sistema)."""
     who = who.strip().lower()
-    for entry in result.entries:
-        if who in (entry.id.lower(), entry.name.lower(), entry.display_name().lower()):
-            return entry
-    for entry in result.entries:  # por coincidencia parcial del nombre
-        if who in entry.display_name().lower():
-            return entry
-    return None
+    by_id = [e for e in result.entries if e.id.lower() == who]
+    if by_id:
+        return by_id
+    exact = [e for e in result.entries if who in (e.name.lower(), e.display_name().lower())]
+    found = exact or [e for e in result.entries if who in e.display_name().lower()]
+    toggleable = [e for e in found if report.can_toggle(e)]
+    return toggleable if len(toggleable) == 1 else found
 
 
 def run_toggle(args, enable: bool) -> int:
     who = args.activar if enable else args.desactivar
     result = scan.scan()
-    entry = _find(result, who)
+    found = _matches(result, who)
+    if len(found) > 1:
+        # Antes se cambiaba la primera que saliera: mejor que elijas tú.
+        print(f"Hay varios que encajan con «{who}». Repite la orden con el id del que quieras:", file=sys.stderr)
+        for e in found:
+            print(f"  {clean(e.id)}  ({clean(e.display_name())}, {clean(e.where)})", file=sys.stderr)
+        return 1
+    entry = found[0] if found else None
     if entry is None:
         print(f"No encuentro «{who}». Mira la lista con boot-scout, y usa el nombre tal cual.", file=sys.stderr)
         return 1
