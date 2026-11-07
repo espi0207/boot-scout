@@ -15,7 +15,9 @@ def isolated(tmp_path, monkeypatch):
 def test_demo(capsys):
     assert cli.main(["--demo"]) == 0
     out = capsys.readouterr().out
-    assert "15 cosas arrancan solas" in out
+    assert "16 cosas arrancan solas" in out
+    # Firmado por Microsoft, pero arranca PowerShell oculta para descargar algo: a revisar.
+    assert "Descarga algo de internet cada vez que arranca" in out
     assert "AnyDesk" in out and "GoToMeeting" in out and "← nuevo" in out
     assert "Lo que conviene mirar" in out
 
