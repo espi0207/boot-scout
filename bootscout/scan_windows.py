@@ -119,6 +119,56 @@ def run_key_entries(source: Source) -> list[Entry]:
             )
             _file_facts(entry, source)
             entries.append(entry)
+    return entries + runonceex_entries(source)
+
+
+# RunOnceEx: subclaves numeradas («0001», «0002»…) con órdenes, o con DLL en la forma
+# «||C:\x.dll|Función». La subclave «Depend» lleva DLL que se cargan antes de todo: casi
+# nadie lo usa hoy y es una forma conocida de que un virus se cargue al arrancar.
+RUNONCEEX_KEYS = [
+    (r"HKLM\Software\Microsoft\Windows\CurrentVersion\RunOnceEx", "sistema"),
+    (r"HKLM\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnceEx", "sistema"),
+    (r"HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnceEx", "usuario"),
+]
+
+
+def runonceex_entries(source: Source) -> list[Entry]:
+    entries = []
+    for key, scope in RUNONCEEX_KEYS:
+        for sub in source.subkeys(key):
+            for name, data in source.values(f"{key}\\{sub}"):
+                command = str(data).strip() if data is not None else ""
+                if not name or not command:  # el valor sin nombre es el título del grupo
+                    continue
+                if sub.lower() == "depend" or command.startswith("||"):
+                    dll = command.split("|")[2] if command.startswith("||") else command
+                    path = cmdline.expand(dll.strip().strip('"'), source.env)
+                    target = cmdline.Target(path, "", path)
+                else:
+                    target = _resolve(command, source)
+                extra = {}
+                if sub.lower() == "depend":
+                    extra["unusual"] = (
+                        "Windows carga esta DLL al arrancar (RunOnceEx «Depend»). Casi nada legítimo lo usa "
+                        "hoy, y es una forma conocida de que un virus se cargue solo."
+                    )
+                entry = Entry(
+                    id=f"win:runonceex:{key}:{sub}:{name}",
+                    name=f"{sub} · {name}",
+                    when=AT_LOGON,
+                    where="Registro: RunOnceEx" + (" (tu usuario)" if scope == "usuario" else " (todo el equipo)"),
+                    location=f"{key}\\{sub}\\{name}",
+                    command=command,
+                    path=target.file,
+                    args=target.args,
+                    inline=target.inline,
+                    encoded=target.encoded,
+                    scope=scope,
+                    trigger="solo la próxima vez que enciendas",
+                    extra=extra,
+                )
+                _file_facts(entry, source)
+                entries.append(entry)
     return entries
 
 
@@ -181,6 +231,44 @@ WINLOGON = r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon"
 IFEO = r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options"
 APPINIT = r"HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows"
 ACTIVE_SETUP = r"HKLM\Software\Microsoft\Active Setup\Installed Components"
+ACTIVE_SETUP_32 = r"HKLM\Software\Wow6432Node\Microsoft\Active Setup\Installed Components"
+
+
+def active_setup_entries(source: Source) -> list[Entry]:
+    """Active Setup: una orden que Windows ejecuta la primera vez que cada usuario inicia
+    sesión (la usan Windows y algunos instaladores, y también el malware para volver a
+    instalarse en cada usuario nuevo)."""
+    entries = []
+    windows = cmdline.expand("%SystemRoot%", source.env).lower().rstrip("\\") + "\\"
+    for key in (ACTIVE_SETUP, ACTIVE_SETUP_32):
+        for guid in source.subkeys(key):
+            stub = source.value(f"{key}\\{guid}", "StubPath")
+            installed = source.value(f"{key}\\{guid}", "IsInstalled")
+            if not stub or not str(stub).strip() or str(installed) == "0":
+                continue
+            command = str(stub).strip()
+            target = _resolve(command, source)
+            title = source.value(f"{key}\\{guid}", "")
+            entry = Entry(
+                id=f"win:activesetup:{guid.lower()}",
+                name=str(title).strip() if title and str(title).strip() else guid,
+                when=AT_LOGON,
+                where="Active Setup",
+                location=f"{key}\\{guid}\\StubPath",
+                command=command,
+                path=target.file,
+                args=target.args,
+                inline=target.inline,
+                encoded=target.encoded,
+                scope="sistema",
+                trigger="la primera vez que cada usuario inicia sesión",
+                hint="Es de todo el equipo: no se desactiva desde aquí.",
+                # Lo que está en la carpeta de Windows es del propio sistema.
+                extra={"default": True} if (target.file or "").lower().startswith(windows) else {},
+            )
+            _file_facts(entry, source)
+            entries.append(entry)
+    return entries
 
 
 def special_entries(source: Source) -> list[Entry]:
@@ -263,7 +351,7 @@ def special_entries(source: Source) -> list[Entry]:
         )
         _file_facts(entry, source)
         entries.append(entry)
-    return entries
+    return entries + active_setup_entries(source)
 
 
 def scan(source: Source | None = None) -> list[Entry]:
