@@ -41,6 +41,9 @@ def _run(args: list[str]) -> str:
         return ""
 
 
+_exists = os.path.exists  # se cambia en las pruebas
+
+
 def _target(command_or_argv):
     isfile = os.path.exists
 
@@ -144,6 +147,8 @@ def agent_entry(
         path=target.file or program,
         args=target.args,
         inline=target.inline,
+        # Sin esto, un agente de un programa que ya desinstalaste no salía como «Roto».
+        exists=_exists(target.file or program) if str(target.file or program).startswith("/") else None,
         enabled=not disabled,
         scope=scope,
         trigger=trigger,

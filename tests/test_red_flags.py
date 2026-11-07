@@ -159,3 +159,35 @@ def test_cloud_init_pipe_is_not_a_red_flag():
     # Los servicios de cloud-init de Ubuntu hacen esto, y son del sistema.
     command = 'sh -c echo "start" | nc -U /run/cloud-init/share/config.sock | sh'
     assert judge.red_flags(e(command=command, path="/usr/bin/sh")) == []
+
+
+def test_a_startup_shortcut_disabled_by_boot_scout_can_be_turned_back_on():
+    # Desactivar mueve el acceso directo a «Desactivados por boot-scout». Antes, en la
+    # siguiente pasada ya no salía, y solo se podía volver a activar con «deshacer».
+    from bootscout import lnk
+
+    startup = r"C:\Users\Ana\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+    files = {
+        f"{startup}\\Desactivados por boot-scout\\Steam.lnk": lnk.build(r"C:\Steam\steam.exe", "-silent"),
+        r"C:\Steam\steam.exe": b"x",
+    }
+    (entry,) = sw.startup_folder_entries(Source(files=files, env=ENV))
+    assert entry.name == "Steam" and entry.enabled is False
+    assert entry.id == "win:startup:usuario:Steam.lnk"
+    assert entry.toggle == {"kind": "startup-file", "file": f"{startup}\\Steam.lnk"}
+
+
+def test_missing_program_on_macos_is_broken(monkeypatch):
+    import plistlib
+
+    from bootscout import scan_macos as sm
+    from bootscout.entry import BROKEN
+
+    agent = {"Label": "com.old.helper", "Program": "/Applications/Old.app/Contents/helper", "RunAtLoad": True}
+    files = {"/Library/LaunchAgents/com.old.helper.plist": plistlib.dumps(agent)}
+    monkeypatch.setattr(sm, "_exists", lambda path: False)
+    (entry,) = sm.launchd_entries(files, "Al iniciar sesión", "x", "sistema", None)
+    assert entry.exists is False and judge.judge(entry).verdict == BROKEN
+    monkeypatch.setattr(sm, "_exists", lambda path: True)
+    (entry,) = sm.launchd_entries(files, "Al iniciar sesión", "x", "sistema", None)
+    assert entry.exists is True and judge.judge(entry).verdict != BROKEN
