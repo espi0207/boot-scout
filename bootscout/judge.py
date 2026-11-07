@@ -237,7 +237,9 @@ def judge(entry: Entry) -> Entry:
         reasons.append("Está en una carpeta temporal, y ahí no se instalan los programas.")
     if flags := red_flags(entry):
         entry.verdict = CHECK
-        reasons.extend(flags)
+        # Delante: es lo que hace que salga en «Revísalo», y el resumen enseña el primer motivo.
+        # «Lleva la firma de Microsoft» primero tranquilizaría justo en el caso que no debe.
+        reasons[:0] = flags
     entry.reasons = reasons
     return entry
 
