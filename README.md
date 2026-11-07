@@ -133,9 +133,27 @@ boot-scout conoce ~180 programas y servicios comunes y, para el resto, decide po
 la ruta y lo que el archivo dice de sí mismo. En Linux, por el paquete: si lo pone a arrancar
 un paquete del sistema, déjalo; si es un programa instalado que tú (o él mismo) has puesto a
 arrancar, como quieras. Y la sección del paquete (red, sonido, juegos, programación…) dice
-qué es. Y marca lo que no cuadra: una firma no válida, algo
-metido en una carpeta temporal, o un sitio del sistema (Winlogon, IFEO) con algo que no
-debería estar.
+qué es. Si no lo conoce, también mira el nombre: «WireGuard», «RustDesk» o «Ubisoft
+Connect» ya dicen si es una VPN, control remoto o juegos. Y marca lo que no cuadra: una
+firma no válida, algo metido en una carpeta temporal, o un sitio del sistema (Winlogon,
+IFEO, RunOnceEx «Depend») con algo que no debería estar.
+
+Además, aunque el programa sea conocido y esté firmado, pasa a **Revísalo** si la orden
+con la que arranca usa los trucos de siempre de los virus:
+
+- descargar algo de internet al arrancar (`iwr`, `curl`, `certutil -urlcache`,
+  `bitsadmin /transfer`) o pasarlo directo a la shell (`curl … | bash`, `iex`);
+- PowerShell oculta o saltándose sus protecciones (`-WindowStyle Hidden`,
+  `-ExecutionPolicy Bypass`) o con la orden escondida en Base64 (`-EncodedCommand`);
+- usar `mshta`, `regsvr32` o `rundll32` para ejecutar código de internet o escrito en la
+  propia orden;
+- descodificar Base64 para ejecutarlo, o abrir una «shell inversa» (`/dev/tcp/`, `nc -e`);
+- un script (`.vbs`, `.js`, `.ps1`…) guardado en AppData, o un programa en una carpeta
+  donde puede escribir cualquiera (Acceso público, la Papelera, la raíz de ProgramData).
+
+Lo probé en un Ubuntu con 129 cosas arrancando: ninguna salta por esto. La primera
+versión marcaba los servicios de cloud-init, que pasan una orden a `sh` por una tubería;
+ahora solo cuenta si lo que llega a la shell viene de internet.
 
 ## Limitaciones
 

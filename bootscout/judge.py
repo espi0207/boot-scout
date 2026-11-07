@@ -14,12 +14,16 @@ from .entry import (
     BROKEN,
     CHECK,
     KEEP,
+    KIND_BROWSER,
+    KIND_CHAT,
+    KIND_CLOUD,
     KIND_DEV,
     KIND_GAMES,
     KIND_HARDWARE,
     KIND_MEDIA,
     KIND_OFFICE,
     KIND_OTHER,
+    KIND_REMOTE,
     KIND_SECURITY,
     KIND_SYSTEM,
     KIND_TOOLS,
@@ -44,7 +48,83 @@ KIND_WORDS = [
         KIND_HARDWARE,
     ),
     (re.compile(r"antivirus|security|defender|firewall|protect", re.I), KIND_SECURITY),
+    (re.compile(r"\b(vpn|wireguard|openvpn|tailscale|zerotier|nordvpn|protonvpn|mullvad|expressvpn|"
+                r"forticlient|globalprotect|anyconnect)", re.I), KIND_VPN),
+    (re.compile(r"\b(anydesk|teamviewer|rustdesk|parsec|splashtop|vnc|remote ?desktop|escritorio remoto|"
+                r"remote ?utilities|supremo)", re.I), KIND_REMOTE),
+    (re.compile(r"\b(discord|whatsapp|telegram|signal|slack|teams|zoom|skype|webex|element|messenger|"
+                r"thunderbird|outlook|mail)", re.I), KIND_CHAT),
+    (re.compile(r"\b(onedrive|dropbox|google ?drive|pcloud|nextcloud|owncloud|mega(sync)?|icloud|box|"
+                r"sync|backup|copia|backblaze|acronis|veeam|syncthing)\b", re.I), KIND_CLOUD),
+    (re.compile(r"\b(steam|epic games|battle\.net|riot|ubisoft|uplay|origin|ea app|gog|xbox|playnite|"
+                r"overwolf|game|juego)", re.I), KIND_GAMES),
+    (re.compile(r"\b(chrome|chromium|firefox|edge|brave|opera|vivaldi|browser|navegador)\b", re.I), KIND_BROWSER),
+    (re.compile(r"\b(spotify|itunes|vlc|plex|kodi|jellyfin|music|música|deezer|tidal)\b", re.I), KIND_MEDIA),
+]  # fmt: skip
+
+# Trucos de los virus para arrancar solos sin que se note. Un programa normal no los
+# necesita, así que pesan más que la firma o que estar en la lista de conocidos.
+RED_FLAGS = [
+    (
+        re.compile(
+            r"\b(iwr|invoke-webrequest|irm|invoke-restmethod|wget|curl|downloadstring|downloadfile|net\.webclient|"
+            r"start-bitstransfer)\b.*https?://|bitsadmin(\.exe)?\s+/transfer|certutil(\.exe)?\s.*-urlcache",
+            re.I,
+        ),
+        "Descarga algo de internet cada vez que arranca. Un programa instalado no lo necesita: así es como "
+        "muchos virus traen el resto de su código.",
+    ),
+    (
+        # solo si lo que llega a la shell viene de internet: cloud-init hace «… | nc -U socket | sh»
+        re.compile(r"(curl|wget|https?://)[^\n]*\|\s*(ba|z|da)?sh\b|\biex\b|invoke-expression", re.I),
+        "Ejecuta directamente lo que descarga o lo que lleva escrito, sin guardarlo en un archivo.",
+    ),
+    (
+        re.compile(r"-w(indowstyle)?\s+(h|hidden|1)\b|-(ep|exec|executionpolicy)\s+bypass", re.I),
+        "Abre PowerShell oculta o saltándose sus protecciones (-WindowStyle Hidden, -ExecutionPolicy Bypass).",
+    ),
+    (
+        re.compile(
+            r"\bmshta(\.exe)?\s+[\"']?(https?:|javascript:|vbscript:)|regsvr32(\.exe)?\s.*?/i:\s*https?:|"
+            r"rundll32(\.exe)?\s+[\"']?(javascript|vbscript):",
+            re.I,
+        ),
+        "Usa un programa de Windows (mshta, regsvr32 o rundll32) para ejecutar código de internet o escrito en "
+        "la propia orden. Es un truco conocido de los virus.",
+    ),
+    (
+        re.compile(r"base64\s+(-d|--decode)|frombase64string", re.I),
+        "Descodifica algo escondido en Base64 para ejecutarlo.",
+    ),
+    (
+        re.compile(r"/dev/tcp/|\b(nc|ncat|netcat)\b.*\s-[ec]\s|\bsocat\b.*exec|bash\s+-i\s*>&", re.I),
+        "Abre una conexión que da el control de este equipo a otro (una «shell inversa»).",
+    ),
 ]
+SCRIPT_IN_APPDATA = re.compile(r"\\appdata\\.*\.(vbs|vbe|js|jse|wsf|hta|ps1|bat|cmd)$", re.I)
+ANYONE_CAN_WRITE = re.compile(
+    r"^[a-z]:\\users\\public\\|\\\$recycle\.bin\\|^[a-z]:\\programdata\\[^\\]+$|^[a-z]:\\perflogs\\", re.I
+)
+
+
+def red_flags(entry: Entry) -> list[str]:
+    """Por qué la orden o el archivo tienen pinta de virus, aunque el programa sea conocido."""
+    text = f"{entry.command} {entry.inline}"
+    found = [reason for pattern, reason in RED_FLAGS if pattern.search(text)]
+    if entry.encoded:
+        found.insert(
+            0, "La orden iba escondida en Base64 (powershell -EncodedCommand): los programas normales no hacen eso."
+        )
+    if entry.path and SCRIPT_IN_APPDATA.search(entry.path):
+        found.append("Es un script guardado en AppData: los programas de verdad no arrancan así.")
+    if entry.path and ANYONE_CAN_WRITE.search(entry.path):
+        found.append(
+            "Está en una carpeta donde puede escribir cualquiera (Acceso público, la Papelera, la raíz de "
+            "ProgramData): ahí no se instala ningún programa."
+        )
+    return found
+
+
 HARDWARE_MAKERS = re.compile(
     r"realtek|nvidia|intel|advanced micro devices|amd\b|synaptics|elan|dolby|waves|"
     r"conexant|qualcomm|broadcom|logitech|razer|corsair|steelseries|asus|lenovo|hp inc|"
@@ -155,6 +235,9 @@ def judge(entry: Entry) -> Entry:
     if entry.path and TEMP_DIRS.search(entry.path):
         entry.verdict = CHECK
         reasons.append("Está en una carpeta temporal, y ahí no se instalan los programas.")
+    if flags := red_flags(entry):
+        entry.verdict = CHECK
+        reasons.extend(flags)
     entry.reasons = reasons
     return entry
 
