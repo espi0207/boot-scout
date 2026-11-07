@@ -181,39 +181,53 @@ STARTUP_FOLDERS = [
 _STARTUP_EXT = (".lnk", ".exe", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse", ".ps1", ".wsf", ".com", ".url")
 
 
+# Donde boot-scout deja lo que desactivas de tu carpeta de Inicio (ver apply.py).
+DISABLED_DIR = "Desactivados por boot-scout"
+
+
 def startup_folder_entries(source: Source) -> list[Entry]:
     entries = []
     for raw, scope, label in STARTUP_FOLDERS:
         folder = cmdline.expand(raw, source.env)
-        for name in source.list_dir(folder):
-            if name.lower() == "desktop.ini" or not name.lower().endswith(_STARTUP_EXT):
-                continue
-            full = ntpath.join(folder, name)
-            if name.lower().endswith(".lnk"):
-                target = _lnk_target(source.read(full), source)
-                command = target.program + (f" {target.args}" if target.args else "")
-            else:
-                target = _resolve(f'"{full}"', source)
-                command, target = full, cmdline.Target(full, "", full)
-            entry = Entry(
-                id=f"win:startup:{scope}:{name}",
-                name=ntpath.splitext(name)[0],
-                when=AT_LOGON,
-                where=f"Carpeta de Inicio ({label})",
-                location=full,
-                command=command,
-                path=target.file,
-                args=target.args,
-                inline=target.inline,
-                scope=scope,
-                toggle={"kind": "startup-file", "file": full} if scope == "usuario" else {},
-                hint=""
-                if scope == "usuario"
-                else "Para quitarlo del todo, borra este acceso directo (hace falta administrador).",
-            )
-            _file_facts(entry, source)
-            entries.append(entry)
+        places = [(folder, True)]
+        if scope == "usuario":
+            # Lo que desactivaste con boot-scout sigue saliendo, apagado, para poder volver a activarlo.
+            places.append((ntpath.join(folder, DISABLED_DIR), False))
+        for where_now, enabled in places:
+            for name in source.list_dir(where_now):
+                if name.lower() == "desktop.ini" or not name.lower().endswith(_STARTUP_EXT):
+                    continue
+                entries.append(_startup_entry(source, folder, where_now, name, scope, label, enabled))
     return entries
+
+
+def _startup_entry(source: Source, folder: str, where_now: str, name: str, scope: str, label: str, enabled: bool):
+    full = ntpath.join(where_now, name)
+    if name.lower().endswith(".lnk"):
+        target = _lnk_target(source.read(full), source)
+        command = target.program + (f" {target.args}" if target.args else "")
+    else:
+        command, target = full, cmdline.Target(full, "", full)
+    entry = Entry(
+        id=f"win:startup:{scope}:{name}",
+        name=ntpath.splitext(name)[0],
+        when=AT_LOGON,
+        where=f"Carpeta de Inicio ({label})",
+        location=full,
+        command=command,
+        path=target.file,
+        args=target.args,
+        inline=target.inline,
+        scope=scope,
+        enabled=enabled,
+        # Activar y desactivar mueven el archivo entre la carpeta de Inicio y DISABLED_DIR.
+        toggle={"kind": "startup-file", "file": ntpath.join(folder, name)} if scope == "usuario" else {},
+        hint=""
+        if scope == "usuario"
+        else "Para quitarlo del todo, borra este acceso directo (hace falta administrador).",
+    )
+    _file_facts(entry, source)
+    return entry
 
 
 def _lnk_target(data: bytes, source: Source) -> cmdline.Target:

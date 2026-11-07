@@ -24,6 +24,7 @@ from pathlib import Path
 
 from .entry import Entry
 from .history import data_dir
+from .scan_windows import DISABLED_DIR
 
 LOG = "cambios.json"
 
@@ -133,7 +134,7 @@ def _windows(toggle: dict, enabled: bool) -> None:  # pragma: no cover - usa win
     elif toggle["kind"] == "startup-file":
         # Mover el acceso directo a una subcarpeta «Desactivados» (y traerlo de vuelta).
         src = Path(toggle["file"])
-        disabled_dir = src.parent / "Desactivados por boot-scout"
+        disabled_dir = src.parent / DISABLED_DIR
         if enabled:
             back = src.parent / src.name
             moved = disabled_dir / src.name
